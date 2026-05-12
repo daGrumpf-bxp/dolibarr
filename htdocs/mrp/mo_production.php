@@ -1569,7 +1569,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 		$permissiontoaddaproductline = $object->status != $object::STATUS_PRODUCED && $object->status != $object::STATUS_CANCELED;
 		$parameters = array('morecss' => 'reposition');
 		if ($action != 'consumeorproduce' && $action != 'consumeandproduceall') {
-			if ($nblinetoproduce == 0 || $object->mrptype == 1) {
+			if ($nblinetoproduce == 0 || $object->mrptype == 1 || $object->mrptype == 2) {
 				$newcardbutton = dolGetButtonTitle($langs->trans('AddNewProduceLines'), '', 'fa fa-plus-circle size15x', $url, '', (int) $permissiontoaddaproductline, $parameters);
 			}
 		}
@@ -1729,7 +1729,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 						// Defined $manufacturingcost
 						$manufacturingcost = 0;
 						$manufacturingcostsrc = '';
-						if ($object->mrptype == 0) {	// If MO is a "Manufacture" type (and not "Disassemble")
+						if ($object->mrptype == 0 || $object->mrptype == 2) {	// Manufacture or MultiProduction: show PMP from consumed products
 							$manufacturingcost = $bomcostupdated;
 							$manufacturingcostsrc = $langs->trans("CalculatedFromProductsToConsume");
 							if (empty($manufacturingcost)) {
@@ -1882,7 +1882,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 							// Defined $manufacturingcost
 							$manufacturingcost = 0;
 							$manufacturingcostsrc = '';
-							if ($object->mrptype == 0) {	// If MO is a "Manufacture" type (and not "Disassemble")
+							if ($object->mrptype == 0 || $object->mrptype == 2) {	// Manufacture or MultiProduction: propagate PMP from consumed products
 								$manufacturingcost = $bomcostupdated;
 								$manufacturingcostsrc = $langs->trans("CalculatedFromProductsToConsume");
 								if (empty($manufacturingcost)) {
