@@ -163,6 +163,46 @@ if (empty($reshook)) {
 		}
 	}
 
+	// Allow editing qty while MO is still in draft status.
+	// IMPORTANT: this handler MUST run BEFORE actions_addupdatedelete.inc.php,
+	// which has a generic 'set<key>' matcher that would intercept 'setqty' and
+	// call $object->fetch() + update() without setting $object->oldQty, so
+	// Mo::updateProduction() would skip the line scaling (its condition is
+	// !empty($this->oldQty)).
+	if ($action == 'setqty' && $permissiontoadd && $object->status == Mo::STATUS_DRAFT) {
+		$newqty = GETPOSTFLOAT('qty');
+		if ($newqty > 0) {
+			$object->oldQty = (float) $object->qty;
+			$object->qty = $newqty;
+			$res = $object->update($user);
+			if ($res > 0) {
+				// Enforce invariant: the 'toproduce' line for the MO's main product
+				// must equal the MO qty. Mo::updateProduction() scales by ratio
+				// (newQty/oldQty) which can drift if the line state was already
+				// inconsistent (e.g. legacy data from before this patch). Realign
+				// the main product line, leaving sub-products and frozen lines
+				// untouched.
+				$object->fetchLines();
+				foreach ($object->lines as $line) {
+					if ($line->role === 'toproduce'
+						&& (int) $line->fk_product === (int) $object->fk_product
+						&& empty($line->qty_frozen)
+						&& (float) $line->qty != (float) $object->qty) {
+						$line->qty = (float) $object->qty;
+						$line->update($user);
+					}
+				}
+				setEventMessages($langs->trans("RecordSaved"), null, 'mesgs');
+			} else {
+				setEventMessages($object->error, $object->errors, 'errors');
+			}
+		} else {
+			setEventMessages($langs->trans("ErrorFieldRequired", $langs->trans("Qty")), null, 'errors');
+		}
+		header("Location: ".$_SERVER["PHP_SELF"]."?id=".$object->id);
+		exit;
+	}
+
 	// Actions cancel, add, update, delete or clone
 	include DOL_DOCUMENT_ROOT.'/core/actions_addupdatedelete.inc.php';
 
@@ -714,6 +754,18 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 	$keyforbreak = 'fk_warehouse';
 	unset($object->fields['fk_project']);
 	unset($object->fields['fk_soc']);
+	// Allow inline edit of qty while MO is in draft status.
+	// Note: editfieldval() does not handle type 'real' (no <input> rendered, only
+	// Save/Cancel buttons appear). So we override the type to 'numeric' only when
+	// the user has actually clicked the edit pencil (action=editqty). This keeps
+	// the read-mode rendering (price() format) untouched.
+	if ($object->status == Mo::STATUS_DRAFT && $permissiontoadd && isset($object->fields['qty'])) {
+		$object->fields['qty']['alwayseditable'] = 1;
+		if ($action == 'editqty') {
+			$object->fields['qty']['type'] = 'numeric';
+		}
+	}
+
 	include DOL_DOCUMENT_ROOT.'/core/tpl/commonfields_view.tpl.php';
 
 	// Other attributes
@@ -1685,6 +1737,47 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 
 		if (!empty($object->lines)) {
 			$nblinetoproduce = 0;
+			// MultiProduction (mrptype=2): pre-compute per-line volume-prorata share of $bomcostupdated.
+			// Rule: each toproduce line gets (volume * 10^volume_units * qty) / sum, then divided by qty to get unit cost.
+			// If ANY toproduce line has missing qty/volume/volume_units => abort prorata (mode panne), mark faulty refs for tooltip.
+			$multiprodProrataShare = array();    // line->id => unit manufacturing cost (already divided by line->qty)
+			$multiprodFaultyRefs   = array();    // line->id => product ref (for tooltip on the faulty line)
+			$multiprodProrataAbort = false;
+			if (isset($object->mrptype) && $object->mrptype == 2) {
+				$multiprodVolumes = array();    // line->id => normalized volume in m3 (volume * 10^volume_units * qty)
+				foreach ($object->lines as $line) {
+					if ($line->role != 'toproduce') {
+						continue;
+					}
+					$tmpproductPre = new Product($db);
+					$tmpproductPre->fetch($line->fk_product);
+					$vol   = (float) $tmpproductPre->volume;
+					$units = $tmpproductPre->volume_units;     // may be '', null, or numeric (e.g. -3 for dm3, -6 for cm3)
+					$qty   = (float) $line->qty;
+					if ($qty <= 0 || $vol <= 0 || $units === '' || $units === null || !is_numeric($units)) {
+						$multiprodProrataAbort = true;
+						$multiprodFaultyRefs[$line->id] = $tmpproductPre->ref;
+						$multiprodVolumes[$line->id]    = 0;
+					} else {
+						$multiprodVolumes[$line->id] = $vol * pow(10, (int) $units) * $qty;
+					}
+				}
+				if (!$multiprodProrataAbort) {
+					$sumVol = array_sum($multiprodVolumes);
+					if ($sumVol > 0 && !empty($bomcostupdated)) {
+						foreach ($multiprodVolumes as $lineid => $volm3) {
+							// Find the line to get its qty (for unit cost)
+							foreach ($object->lines as $line) {
+								if ($line->id == $lineid && $line->role == 'toproduce' && (float) $line->qty > 0) {
+									$multiprodProrataShare[$lineid] = ((float) $bomcostupdated) * ($volm3 / $sumVol) / (float) $line->qty;
+									break;
+								}
+							}
+						}
+					}
+				}
+			}
+
 			foreach ($object->lines as $line) {
 				if ($line->role == 'toproduce') {
 					$nblinetoproduce++;
@@ -1729,7 +1822,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 						// Defined $manufacturingcost
 						$manufacturingcost = 0;
 						$manufacturingcostsrc = '';
-						if ($object->mrptype == 0 || $object->mrptype == 2) {	// Manufacture or MultiProduction: show PMP from consumed products
+						if ($object->mrptype == 0) {	// If MO is a "Manufacture" type (and not "Disassemble")
 							$manufacturingcost = $bomcostupdated;
 							$manufacturingcostsrc = $langs->trans("CalculatedFromProductsToConsume");
 							if (empty($manufacturingcost)) {
@@ -1743,6 +1836,16 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 							if (empty($manufacturingcost)) {
 								$manufacturingcost = price2num($tmpproduct->pmp, 'MU');
 								$manufacturingcostsrc = $langs->trans("PMPValue");
+							}
+						} elseif ($object->mrptype == 2) {	// MultiProduction: volume-prorata of $bomcostupdated
+							if ($multiprodProrataAbort) {
+								// Mode panne: leave cost empty. Tooltip "Volume missing" only on the faulty line(s).
+								if (isset($multiprodFaultyRefs[$line->id])) {
+									$manufacturingcostsrc = $langs->trans("MultiProductionMissingVolume", $multiprodFaultyRefs[$line->id]);
+								}
+							} elseif (isset($multiprodProrataShare[$line->id])) {
+								$manufacturingcost = price2num($multiprodProrataShare[$line->id], 'MU');
+								$manufacturingcostsrc = $langs->trans("MultiProductionVolumeProrata");
 							}
 						}
 
@@ -1882,7 +1985,7 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 							// Defined $manufacturingcost
 							$manufacturingcost = 0;
 							$manufacturingcostsrc = '';
-							if ($object->mrptype == 0 || $object->mrptype == 2) {	// Manufacture or MultiProduction: propagate PMP from consumed products
+							if ($object->mrptype == 0) {	// If MO is a "Manufacture" type (and not "Disassemble")
 								$manufacturingcost = $bomcostupdated;
 								$manufacturingcostsrc = $langs->trans("CalculatedFromProductsToConsume");
 								if (empty($manufacturingcost)) {
@@ -1897,11 +2000,21 @@ if ($object->id > 0 && (empty($action) || ($action != 'edit' && $action != 'crea
 									$manufacturingcost = price2num($tmpproduct->pmp, 'MU');
 									$manufacturingcostsrc = $langs->trans("PMPValue");
 								}
+							} elseif ($object->mrptype == 2) {	// MultiProduction: volume-prorata of $bomcostupdated
+								if ($multiprodProrataAbort) {
+									// Mode panne: input left empty for manual entry. Tooltip only on faulty line.
+									if (isset($multiprodFaultyRefs[$line->id])) {
+										$manufacturingcostsrc = $langs->trans("MultiProductionMissingVolume", $multiprodFaultyRefs[$line->id]);
+									}
+								} elseif (isset($multiprodProrataShare[$line->id])) {
+									$manufacturingcost = price2num($multiprodProrataShare[$line->id], 'MU');
+									$manufacturingcostsrc = $langs->trans("MultiProductionVolumeProrata");
+								}
 							}
 
 							if ($tmpproduct->type == Product::TYPE_PRODUCT || getDolGlobalString('STOCK_SUPPORTS_SERVICES')) {
 								$preselected = (GETPOSTISSET('pricetoproduce-'.$line->id.'-'.$i) ? GETPOST('pricetoproduce-'.$line->id.'-'.$i) : ($manufacturingcost ? price($manufacturingcost) : ''));
-								print '<td class="right"><input type="text" class="width75 right" name="pricetoproduce-'.$line->id.'-'.$i.'" value="'.$preselected.'"></td>';
+								print '<td class="right" title="'.dol_escape_htmltag($manufacturingcostsrc).'"><input type="text" class="width75 right" name="pricetoproduce-'.$line->id.'-'.$i.'" value="'.$preselected.'"></td>';
 							} else {
 								print '<td><input type="hidden" class="width50 right" name="pricetoproduce-'.$line->id.'-'.$i.'" value="'.($manufacturingcost ? $manufacturingcost : '').'"></td>';
 							}
