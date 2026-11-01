@@ -2388,7 +2388,8 @@ if (empty($reshook)) {
 											$lines[$i]->fk_unit,
 											0,
 											'',
-											1  // noupdateafterinsertline: update_price() is called once after the loop, calling it per line is quadratic
+											1,  // noupdateafterinsertline: update_price() is called once after the loop, calling it per line is quadratic
+											(empty($lines[$i]->ref_customer) ? '' : (string) $lines[$i]->ref_customer)
 										);
 
 										if ($result > 0) {
@@ -3255,7 +3256,7 @@ if (empty($reshook)) {
 				// Insert line
 				$situation_percent = (GETPOSTISSET('progress') ? GETPOSTINT('progress') : 100);
 
-				$result = $object->addline($desc, $pu_ht, (float) $qty, $tva_tx, $localtax1_tx, $localtax2_tx, $idprod, $remise_percent, $date_start, $date_end, 0, $info_bits, 0, $price_base_type, $pu_ttc, $type, min($rank, count($object->lines) + 1), $special_code, '', 0, GETPOSTINT('fk_parent_line'), (int) $fournprice, $buyingprice, $label, $array_options, $situation_percent, 0, $fk_unit, (float) $pu_ht_devise);
+				$result = $object->addline($desc, $pu_ht, (float) $qty, $tva_tx, $localtax1_tx, $localtax2_tx, $idprod, $remise_percent, $date_start, $date_end, 0, $info_bits, 0, $price_base_type, $pu_ttc, $type, min($rank, count($object->lines) + 1), $special_code, '', 0, GETPOSTINT('fk_parent_line'), (int) $fournprice, $buyingprice, $label, $array_options, $situation_percent, 0, $fk_unit, (float) $pu_ht_devise, '', 0, GETPOST('line_ref_customer', 'alphanohtml'));
 
 				if ($result > 0) {
 					$ret = $object->fetch($id); // Reload to get new records
@@ -3763,7 +3764,11 @@ if (empty($reshook)) {
 				$array_options,
 				$addprogress,
 				GETPOSTINT('units'),
-				(float) $pu_ht_devise
+				(float) $pu_ht_devise,
+				0,
+				'',
+				0,
+				GETPOSTISSET('line_ref_customer') ? GETPOST('line_ref_customer', 'alphanohtml') : null
 			);
 
 			if ($result >= 0) {
@@ -4001,8 +4006,9 @@ if (empty($reshook)) {
 					$fk_prev_id = 0;
 					$fk_unit = $originLine->fk_unit;
 					$pu_ht_devise = $originLine->multicurrency_subprice;
+					$ref_customer = empty($originLine->ref_customer) ? '' : (string) $originLine->ref_customer;
 
-					$res = $object->addline($desc, $pu_ht, $qty, $txtva, $txlocaltax1, $txlocaltax2, $fk_product, $remise_percent, $date_start, $date_end, $fk_code_ventilation, $info_bits, $fk_remise_except, $price_base_type, $pu_ttc, $type, $rang, $special_code, $origin, $origin_id, $fk_parent_line, $fk_fournprice, $pa_ht, $label, $array_options, $situation_percent, $fk_prev_id, $fk_unit, $pu_ht_devise);
+					$res = $object->addline($desc, $pu_ht, $qty, $txtva, $txlocaltax1, $txlocaltax2, $fk_product, $remise_percent, $date_start, $date_end, $fk_code_ventilation, $info_bits, $fk_remise_except, $price_base_type, $pu_ttc, $type, $rang, $special_code, $origin, $origin_id, $fk_parent_line, $fk_fournprice, $pa_ht, $label, $array_options, $situation_percent, $fk_prev_id, $fk_unit, $pu_ht_devise, '', 0, $ref_customer);
 
 					if ($res > 0) {
 						$importCount++;

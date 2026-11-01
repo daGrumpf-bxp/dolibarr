@@ -1091,7 +1091,9 @@ class Invoices extends DolibarrApi
 			$request_data->fk_prev_id,
 			$request_data->fk_unit,
 			0,
-			$request_data->ref_ext
+			$request_data->ref_ext,
+			0,
+			(empty($request_data->ref_customer) ? '' : (string) $request_data->ref_customer)
 		);
 
 		if ($updateRes < 0) {

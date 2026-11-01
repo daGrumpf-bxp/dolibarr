@@ -229,7 +229,7 @@ $coldisplay++;
 	}
 
 	// Reference the customer gives to the line (line of its purchase order). Kept editable when already filled.
-	if ($line instanceof OrderLine && (getDolGlobalString('MAIN_ENABLE_LINE_REF_CUSTOMER') || !empty($line->ref_customer))) {
+	if (($line instanceof OrderLine || $line instanceof FactureLigne) && (getDolGlobalString('MAIN_ENABLE_LINE_REF_CUSTOMER') || !empty($line->ref_customer))) {
 		print '<div class="paddingtop">'.$langs->trans('RefCustomerLine').' : <input type="text" name="line_ref_customer" id="line_ref_customer" class="width150" maxlength="128" value="'.dol_escape_htmltag(GETPOSTISSET('line_ref_customer') ? GETPOST('line_ref_customer', 'alphanohtml') : (string) $line->ref_customer).'"></div>';
 	}
 

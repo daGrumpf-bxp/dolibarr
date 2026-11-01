@@ -452,7 +452,7 @@ if ($nolinesbefore) {
 		}
 
 		// Reference the customer gives to the line (line of its purchase order)
-		if (getDolGlobalString('MAIN_ENABLE_LINE_REF_CUSTOMER') && $object->element == 'commande') {
+		if (getDolGlobalString('MAIN_ENABLE_LINE_REF_CUSTOMER') && in_array($object->element, array('commande', 'facture'))) {
 			echo '<div class="paddingtop">'.$langs->trans('RefCustomerLine').' : <input type="text" name="line_ref_customer" id="line_ref_customer" class="width150" maxlength="128" value="'.dol_escape_htmltag(GETPOST('line_ref_customer', 'alphanohtml')).'"></div>';
 		}
 

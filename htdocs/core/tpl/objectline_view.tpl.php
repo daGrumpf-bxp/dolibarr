@@ -311,7 +311,7 @@ if (($line->info_bits & 2) == 2) {
 	}
 
 	// Reference the customer gives to the line (line of its purchase order)
-	if ($line instanceof OrderLine && !empty($line->ref_customer)) {
+	if (($line instanceof OrderLine || $line instanceof FactureLigne) && !empty($line->ref_customer)) {
 		print '<br><span class="opacitymedium">'.$langs->trans('RefCustomerLine').':</span> '.dol_escape_htmltag($line->ref_customer);
 	}
 

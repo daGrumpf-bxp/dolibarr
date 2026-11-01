@@ -977,7 +977,8 @@ class Facture extends CommonInvoice
 							$newinvoiceline->fk_unit,
 							$newinvoiceline->multicurrency_subprice,
 							$newinvoiceline->ref_ext,
-							1
+							1,
+							(empty($newinvoiceline->ref_customer) ? '' : (string) $newinvoiceline->ref_customer)
 						);
 
 						if ($result < 0) {
@@ -1067,7 +1068,8 @@ class Facture extends CommonInvoice
 							$line->fk_unit,
 							$line->multicurrency_subprice,
 							$line->ref_ext,
-							1
+							1,
+							(empty($line->ref_customer) ? '' : (string) $line->ref_customer)
 						);
 						if ($result < 0) {
 							$this->error = $this->db->lasterror();
@@ -1434,6 +1436,7 @@ class Facture extends CommonInvoice
 			}
 
 			$object->lines[$i]->ref_ext = ''; // Do not clone ref_ext
+			$object->lines[$i]->ref_customer = ''; // Nor the reference the customer gave to a line of another invoice
 
 			// Do not clone accountancy ventilation: a cloned invoice must reappear in "to dispatch" list
 			$object->lines[$i]->fk_code_ventilation = 0;
@@ -1540,6 +1543,7 @@ class Facture extends CommonInvoice
 			$line->fk_unit = $src_line->fk_unit;
 			$line->date_start = $src_line->date_start;
 			$line->date_end = $src_line->date_end;
+			$line->ref_customer = $src_line->ref_customer;
 
 			// Multicurrency
 			$line->fk_multicurrency = $src_line->fk_multicurrency;
@@ -2610,7 +2614,7 @@ class Facture extends CommonInvoice
 		}
 
 		$sql = 'SELECT l.rowid, l.fk_facture, l.fk_product, l.fk_parent_line, l.label as custom_label, l.description, l.product_type, l.price, l.qty, l.vat_src_code, l.tva_tx,';
-		$sql .= ' l.localtax1_tx, l.localtax2_tx, l.localtax1_type, l.localtax2_type, l.remise_percent, l.fk_remise_except, l.subprice, l.subprice_ttc, l.ref_ext,';
+		$sql .= ' l.localtax1_tx, l.localtax2_tx, l.localtax1_type, l.localtax2_type, l.remise_percent, l.fk_remise_except, l.subprice, l.subprice_ttc, l.ref_ext, l.ref_customer,';
 		$sql .= ' l.situation_percent, l.fk_prev_id,';
 		$sql .= ' l.rang, l.special_code, l.batch, l.fk_warehouse,';
 		$sql .= ' l.date_start as date_start, l.date_end as date_end,';
@@ -2677,6 +2681,7 @@ class Facture extends CommonInvoice
 				$line->subprice         = $objp->subprice;
 				$line->subprice_ttc     = $objp->subprice_ttc;
 				$line->ref_ext          = $objp->ref_ext; // line external ref
+				$line->ref_customer     = $objp->ref_customer;
 
 				$line->vat_src_code = $objp->vat_src_code;
 				$line->tva_tx           = $objp->tva_tx;
@@ -4506,6 +4511,7 @@ class Facture extends CommonInvoice
 	 *  @param	float			$pu_ht_devise				Unit price in foreign currency
 	 *  @param	string			$ref_ext		    		External reference of the line
 	 *  @param	int				$noupdateafterinsertline	No update after insert of line
+	 *  @param	string			$ref_customer				Reference the customer gives to the line (line of its purchase order)
 	 *  @return	int             							Return integer <0 if KO, Id of line if OK
 	 */
 	public function addline(
@@ -4539,7 +4545,8 @@ class Facture extends CommonInvoice
 		$fk_unit = null,
 		$pu_ht_devise = 0,
 		$ref_ext = '',
-		$noupdateafterinsertline = 0
+		$noupdateafterinsertline = 0,
+		$ref_customer = ''
 	) {
 		// Deprecation warning
 		if ($label) {
@@ -4741,6 +4748,7 @@ class Facture extends CommonInvoice
 			$this->line->label = $label; // deprecated
 			$this->line->desc = $desc;
 			$this->line->ref_ext = $ref_ext;
+			$this->line->ref_customer = (string) $ref_customer;
 
 			$this->line->qty = ($this->type == self::TYPE_CREDIT_NOTE ? abs((float) $qty) : (float) $qty); // For credit note, quantity is always positive and unit price negative
 			$this->line->subprice = ($apply_abs_price_on_credit_note ? -abs((float) $pu_ht) : (float) $pu_ht); // For credit note, unit price always negative, always positive otherwise
@@ -4877,9 +4885,10 @@ class Facture extends CommonInvoice
 	 * 	@param	int<0,1>		$notrigger			disable line update trigger
 	 *  @param	string			$ref_ext		    External reference of the line
 	 *  @param	integer			$rang		    	rank of line
+	 *  @param	?string			$ref_customer		Reference the customer gives to the line (line of its purchase order), null to keep it
 	 *  @return	int									Return integer < 0 if KO, > 0 if OK
 	 */
-	public function updateline($rowid, $desc, $pu, $qty, $remise_percent, $date_start, $date_end, $txtva, $txlocaltax1 = 0, $txlocaltax2 = 0, $price_base_type = 'HT', $info_bits = 0, $type = self::TYPE_STANDARD, $fk_parent_line = 0, $skip_update_total = 0, $fk_fournprice = null, $pa_ht = 0, $label = '', $special_code = 0, $array_options = array(), $situation_percent = 100, $fk_unit = null, $pu_ht_devise = 0, $notrigger = 0, $ref_ext = '', $rang = 0)
+	public function updateline($rowid, $desc, $pu, $qty, $remise_percent, $date_start, $date_end, $txtva, $txlocaltax1 = 0, $txlocaltax2 = 0, $price_base_type = 'HT', $info_bits = 0, $type = self::TYPE_STANDARD, $fk_parent_line = 0, $skip_update_total = 0, $fk_fournprice = null, $pa_ht = 0, $label = '', $special_code = 0, $array_options = array(), $situation_percent = 100, $fk_unit = null, $pu_ht_devise = 0, $notrigger = 0, $ref_ext = '', $rang = 0, $ref_customer = null)
 	{
 		global $user;
 
@@ -5087,6 +5096,9 @@ class Facture extends CommonInvoice
 			$this->line->label = $label;
 			$this->line->desc = $desc;
 			$this->line->ref_ext = $ref_ext;
+			if ($ref_customer !== null) {
+				$this->line->ref_customer = $ref_customer;
+			}
 			$this->line->qty = ($this->type == self::TYPE_CREDIT_NOTE ? abs((float) $qty) : $qty); // For credit note, quantity is always positive and unit price negative
 
 			$this->line->vat_src_code = $vat_src_code;
